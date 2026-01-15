@@ -5,6 +5,9 @@ from .views import (
     UserProfileViewSet, health_check
 )
 
+def health_check(request):
+    return JsonResponse({"status": "healthy", "service": "anuniosloc-api"})
+
 router = DefaultRouter()
 router.register(r'auth', AuthViewSet, basename='auth')
 router.register(r'locations', LocationViewSet, basename='location')

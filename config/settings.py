@@ -5,16 +5,30 @@ Django settings for anunciosloc_api project.
 from pathlib import Path
 from datetime import timedelta
 import os
+import dj_database_url
 from decouple import config
+import sys
 
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = config('SECRET_KEY', default='sua-chave-secreta-aqui')
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = config('SECRET_KEY', default='sua-chave-secreta-aqui-producao')
 
-DEBUG = config('DEBUG', default=True, cast=bool)
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*').split(',')
+# Configuração de hosts para Render
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS = [RENDER_EXTERNAL_HOSTNAME, 'localhost']
+else:
+    ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost').split(',')
 
+# Adicione também estes domínios para segurança
+ALLOWED_HOSTS.extend(['.onrender.com', '.render.com'])
+
+# Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -27,6 +41,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'django_filters',
+    'whitenoise.runserver_nostatic',  # Adicione esta linha
     
     # Local apps
     'api',
@@ -35,6 +50,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Adicione esta linha
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -65,25 +81,36 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 
 # Database
-#DATABASES = {
- #   'default': {
-  #      'ENGINE': 'django.db.backends.postgresql',
-   #     'NAME': config('DB_NAME', default='anunciosloc_db'),
-    #    'USER': config('DB_USER', default='postgres'),
-     #   'PASSWORD': config('DB_PASSWORD', default=''),
-      #  'HOST': config('DB_HOST', default='localhost'),
-       # 'PORT': config('DB_PORT', default='5432'),
-    #}
-#}
+# https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
-#SQLite para desenvolvimento rápido
-DATABASES = {
-     'default': {
-         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-     }
- }
+# Configuração do banco de dados para Render
+if 'test' in sys.argv or 'test_coverage' in sys.argv:
+    # Configuração para testes
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+elif os.environ.get('DATABASE_URL'):
+    # Usa PostgreSQL no Render
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.environ.get('DATABASE_URL'),
+            conn_max_age=600,
+            ssl_require=True
+        )
+    }
+else:
+    # Desenvolvimento local com SQLite
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
+# Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -91,16 +118,22 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
+# Internationalization
 LANGUAGE_CODE = 'pt-ao'
 TIME_ZONE = 'Africa/Luanda'
 USE_I18N = True
 USE_TZ = True
 
+# Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
+# Media files
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # REST Framework
@@ -116,11 +149,10 @@ REST_FRAMEWORK = {
     ],
 }
 
-# CORS
-APPEND_SLASH = False  # Desabilita redirecionamento automático
+# CORS Configuration
+APPEND_SLASH = False
 
-# CORS
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = False  # Mude para False em produção
 CORS_ALLOW_METHODS = [
     'DELETE',
     'GET',
@@ -129,15 +161,21 @@ CORS_ALLOW_METHODS = [
     'POST',
     'PUT',
 ]
-CORS_ALLOW_ALL_ORIGINS = True  # Para desenvolvimento
-CORS_ALLOW_CREDENTIALS = True
+
+# Lista de origens permitidas em produção
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:8080",
     "http://localhost:8081",
-    "http://172.20.10.13:8080",
-    "http://172.20.10.13:8081",
+    "https://*.onrender.com",
+    "https://*.render.com",
 ]
+
+# Adicione seu frontend quando tiver o domínio
+if config('FRONTEND_URL', default=None):
+    CORS_ALLOWED_ORIGINS.append(config('FRONTEND_URL'))
+
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
     'content-type',
     'authorization',
@@ -145,17 +183,48 @@ CORS_ALLOW_HEADERS = [
     'Session-Id',
 ]
 
+# CSRF Trusted Origins
+CSRF_TRUSTED_ORIGINS = [
+    'https://*.onrender.com',
+    'https://*.render.com',
+]
+
+# Security settings for production
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+
 # Logging
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
         },
     },
     'root': {
         'handlers': ['console'],
         'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
     },
 }
